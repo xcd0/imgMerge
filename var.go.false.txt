@@ -1,0 +1,7 @@
+package main
+
+var bReverse bool = false // 結合順番 左→右
+//var bReverse bool = true // 結合順番 右→左
+
+// const imgQt int = 95
+const imgQt int = 100
