@@ -45,6 +45,7 @@
 2つバイナリを生成するためにmakefileを使用しています。  
 そのため、`go build`ではなく`make`でビルドしてください。
 makefileの中身を読めばわかりますが、`var.go`というファイルを生成して使い分けています。
+
 また、バイナリサイズの削減のため[upx](https://upx.github.io/)を使用しています。
 ```
 sudo apt install upx
