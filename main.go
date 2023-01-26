@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"facette.io/natsort"
+	"github.com/cheggaaa/pb/v3"
 )
 
 func main() { // {{{
@@ -96,70 +97,33 @@ func merge_img(imgs []string) { // {{{
 			return
 		}
 	}
-	log.Printf("input path  : %s", imgs[0])
-	log.Printf("output path : %s", output_path)
-
-	img_num := len(imgs) - 1
-
-	// 画像を保持する構造体のスライスを生成
-	//log.Print(imgs)
-	images := make([]Image, 0, len(imgs)-1)
-	for i := 1; i <= img_num; i++ {
-		img, err := NewImage(imgs[i])
-		if err != nil {
-			// 画像が読み込めなかった
-			log.Println("Error : 画像ファイルが読み込めませんでした。")
-			log.Printf("画像のファイルパス : %s", imgs[i])
-			log.Printf("ディレクトリ : %s での生成失敗", imgs[0])
-			return
-		}
-		images = append(images, *img)
-	}
-	log.Printf("image loading finished.")
-
+	fmt.Printf("input path  : %s\n", imgs[0])
+	fmt.Printf("output path : %s\n", output_path)
 	// 並列化したい
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	wg := new(sync.WaitGroup)
-
-	// 2枚づつ処理する
-	num := len(images) // int(math.Ceil(float64(len(images)) / 2))
-	log.Printf("num : %d", num)
-	// 進捗表示
-	//bar := pb.Simple.Start(num)
-	for i := 0; i < num; i += 2 {
-		if len(images) >= i+1 {
-			wg.Add(1)
-			log.Printf("goroutine %d start", i)
-			// 奇数枚の時の最後の画像はそのまま出力する
-			// read the whole file at once
+	num := len(imgs) - 1
+	// int(math.Ceil(float64(len(images)) / 2))
+	//log.Printf("num : %d", num)
+	bar := pb.Simple.Start(num / 2) // 進捗表示
+	for i := 0; i < num; i += 2 {   // 2枚づつ処理する
+		if num <= i+1 { // 奇数枚の時の最後の画像はそのまま出力する
 			in, err := ioutil.ReadFile(imgs[i+1])
 			if err != nil {
 				log.Print(err)
 				return
 			}
-
-			// write the whole body at once
-			out := filepath.Join(output_path, filepath.Base(imgs[i+1]))
-			if err = ioutil.WriteFile(out, in, 0644); err != nil {
+			if err = ioutil.WriteFile(filepath.Join(output_path, filepath.Base(imgs[i+1])), in, 0644); err != nil {
 				log.Print(err)
 				return
 			}
-			//bar.Increment()
-			log.Printf("goroutine %d finish", i)
-			wg.Done()
 		} else {
 			wg.Add(1)
-			log.Printf("goroutine %d start", i)
-			go connect(&images, &imgs, output_path, i, wg)
-			log.Printf("goroutine %d finish", i)
-			//bar.Increment()
+			go connect(&imgs, output_path, i, wg, bar)
 		}
 	}
-
 	wg.Wait()
-
-	//bar.Finish()
-
+	bar.Finish()
 	fmt.Printf("ディレクトリ : %s での生成完了。\n", imgs[0])
 	time.Sleep(time.Second * 1)
 } // }}}
@@ -174,36 +138,56 @@ func (w *withGoroutineID) Write(p []byte) (int, error) {
 	return w.out.Write(append(firstline[:len(firstline)-10], p...))
 }
 
-func connect(images *[]Image, imgs *[]string, output_path string, i int, wg *sync.WaitGroup) {
+// func connect(images *[]Image, imgs *[]string, output_path string, i int, wg *sync.WaitGroup) {
+func connect(imgs *[]string, output_path string, i int, wg *sync.WaitGroup, bar *pb.ProgressBar) {
 	defer wg.Done()
+	defer bar.Increment()
+
+	// 画像を保持する構造体のスライスを生成
+	//log.Print(imgs)
+	var a, b *Image
+	var err1, err2 error
+	if !bReverse { // ファイル名昇順で右から左に並べる
+		a, err1 = NewImage((*imgs)[i+1])
+		b, err2 = NewImage((*imgs)[i+2])
+	} else { // ファイル名昇順で左から右に並べる
+		b, err1 = NewImage((*imgs)[i+1])
+		a, err2 = NewImage((*imgs)[i+2])
+	}
+	if err1 != nil || err2 != nil {
+		// 画像が読み込めなかった
+		log.Println("Error : 画像ファイルが読み込めませんでした。")
+		if err1 != nil {
+			log.Printf("画像のファイルパス : %s", (*imgs)[i+1])
+		} else {
+			log.Printf("画像のファイルパス : %s", (*imgs)[i+2])
+		}
+		log.Printf("ディレクトリ : %s での生成失敗", (*imgs)[0])
+		return
+	}
 
 	// 画像を横に結合する。まず最終的な画像サイズの空白画像を生成し、その上に書き込む
 	//log.Printf("input : %s", (*imgs)[i+1])
 	//log.Printf("input : %s", (*imgs)[i+2])
-	log.Printf("input : %s, %s", filepath.Base((*imgs)[i+1]), filepath.Base((*imgs)[i+2]))
-	w := (*images)[i].width + (*images)[i+1].width
-	h := int(math.Max(float64((*images)[i].height), float64((*images)[i+1].height)))
-	//log.Printf("1 : (w,h) : (%d,%d) ", (*images)[i].width, (*images)[i].height)
-	//log.Printf("2 : (w,h) : (%d,%d) ", (*images)[i+1].width, (*images)[i+1].height)
+	//log.Printf("input : %s, %s", filepath.Base((*imgs)[i+1]), filepath.Base((*imgs)[i+2]))
+	w := a.width + b.width
+	h := int(math.Max(float64(a.height), float64(b.height)))
+	//log.Printf("1 : (w,h) : (%d,%d) ", a.width, a.height)
+	//log.Printf("2 : (w,h) : (%d,%d) ", b.width, b.height)
 	//log.Printf("o : (w,h) : (%d,%d) ", w, h)
 	outImg := image.NewRGBA(image.Rect(0, 0, w, h))
 	rect := make([]image.Rectangle, 2)
-	if bReverse { // ファイル名昇順で右から左に並べる
-		rect[0] = image.Rect(0, 0, (*images)[i+1].width, (*images)[i+1].height)
-		rect[1] = image.Rect((*images)[i+1].width, 0, (*images)[i+1].width+(*images)[i].width, (*images)[i].height)
-	} else {
-		rect[0] = image.Rect(0, 0, (*images)[i].width, (*images)[i].height)
-		rect[1] = image.Rect((*images)[i].width, 0, (*images)[i].width+(*images)[i+1].width, (*images)[i+1].height)
-	}
+	rect[0] = image.Rect(0, 0, a.width, a.height)
+	rect[1] = image.Rect(a.width, 0, a.width+b.width, b.height)
 	//log.Printf("o : rect : %v", rect)
-	draw.Draw(outImg, rect[0], (*images)[i].img, image.Point{0, 0}, draw.Over)
-	draw.Draw(outImg, rect[1], (*images)[i+1].img, image.Point{0, 0}, draw.Over)
+	draw.Draw(outImg, rect[0], a.img, image.Point{0, 0}, draw.Over)
+	draw.Draw(outImg, rect[1], b.img, image.Point{0, 0}, draw.Over)
 
 	base := filepath.Base((*imgs)[i+1])
 	ext := strings.ToLower(filepath.Ext(base)) // ファイルパスが入っている(*imgs)と画像データが入っているimagsは1つずれている
 	out := filepath.Join(output_path, base)
 	OutputImage(outImg, out, ext)
-	log.Printf("output : %s", out)
+	//log.Printf("output : %s", out)
 }
 
 func OutputImage(outputImage image.Image, filePath string, format string) { // {{{
