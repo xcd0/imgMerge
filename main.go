@@ -99,8 +99,9 @@ func merge_img(imgs []string) { // {{{
 	}
 	fmt.Printf("input path  : %s\n", imgs[0])
 	fmt.Printf("output path : %s\n", output_path)
-	// 並列化したい
-	runtime.GOMAXPROCS(runtime.NumCPU())
+	// 並行数制限
+	limit := runtime.GOMAXPROCS(runtime.NumCPU())
+	slots := make(chan struct{}, limit)
 	wg := new(sync.WaitGroup)
 	num := len(imgs) - 1
 	// int(math.Ceil(float64(len(images)) / 2))
@@ -119,7 +120,13 @@ func merge_img(imgs []string) { // {{{
 			}
 		} else {
 			wg.Add(1)
-			go connect(&imgs, output_path, i, wg, bar)
+			slots <- struct{}{}
+			go func() {
+				connect(&imgs, output_path, i)
+				<-slots
+				wg.Done()
+				bar.Increment()
+			}()
 		}
 	}
 	wg.Wait()
@@ -138,11 +145,7 @@ func (w *withGoroutineID) Write(p []byte) (int, error) {
 	return w.out.Write(append(firstline[:len(firstline)-10], p...))
 }
 
-// func connect(images *[]Image, imgs *[]string, output_path string, i int, wg *sync.WaitGroup) {
-func connect(imgs *[]string, output_path string, i int, wg *sync.WaitGroup, bar *pb.ProgressBar) {
-	defer wg.Done()
-	defer bar.Increment()
-
+func connect(imgs *[]string, output_path string, i int) {
 	// 画像を保持する構造体のスライスを生成
 	//log.Print(imgs)
 	var a, b *Image
